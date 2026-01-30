@@ -44,27 +44,41 @@ class SchedulerService:
         with self.app.app_context():
             self.scraper.run()
 
-    def broadcast_job(self):
+    def broadcast_job(self, is_test=False):
         """
         Weekly Broadcast Job (Mon 08:30)
+        is_test: If True, bypass date filter and broadcast upcoming stocks immediately.
         """
-        logger.info("Starting weekly broadcast job...")
+        logger.info(f"Starting broadcast job... (Test Mode: {is_test})")
         
         with self.app.app_context():
-            # Check Data: Query stocks with meeting dates in the current week
-            today = datetime.now().date()
-            start_of_week = today
-            end_of_week = today + timedelta(days=4) # Mon-Fri
-            
-            stocks = Stock.query.filter(
-                Stock.meeting_date >= start_of_week,
-                Stock.meeting_date <= end_of_week
-            ).all()
+            stocks = []
+            if is_test:
+                # Test Mode: Fetch all stocks with future last buy dates (or recently passed)
+                # To ensure the user sees something, we just fetch the top 20 upcoming/active ones.
+                stocks = Stock.query.order_by(Stock.last_buy_date.desc()).limit(20).all()
+            else:
+                # Normal Mode: 
+                # Notify for stocks where "Last Buy Date" is coming up in the next 7 days.
+                # This ensures users have time to buy.
+                today = datetime.now().date()
+                upcoming_deadline = today + timedelta(days=7)
+                
+                stocks = Stock.query.filter(
+                    Stock.last_buy_date >= today,
+                    Stock.last_buy_date <= upcoming_deadline
+                ).all()
 
             # Early Exit
             if not stocks:
-                logger.info("No stocks found for this week. Stopping broadcast.")
-                return
+                logger.info("No stocks found for broadcast.")
+                if is_test:
+                     # If DB is truly empty or no future dates, try fetching ANY stock to prove DB works
+                     stocks = Stock.query.limit(5).all()
+                     if not stocks:
+                         return # DB is really empty
+                else:
+                    return
 
             # Batch Sending
             users = User.query.filter_by(is_active=True).all()
@@ -72,7 +86,7 @@ class SchedulerService:
             
             if not user_ids:
                 logger.info("No active users to notify.")
-                return
+                return 
 
             logger.info(f"Found {len(stocks)} stocks and {len(user_ids)} users.")
 

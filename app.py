@@ -106,11 +106,16 @@ def manual_trigger():
         print("手動觸發：開始爬蟲...")
         service.scrape_job()
         
-        # 3. 強制執行廣播
-        print("手動觸發：開始廣播...")
-        service.broadcast_job()
+        # Check DB count after scrape
+        from models import Stock, User
+        stock_count = Stock.query.count()
+        user_count = User.query.count()
         
-        return "測試成功！資料庫已修復並執行完畢。請檢查 LINE 訊息！"
+        # 3. 強制執行廣播 (Test Mode: Force Send)
+        print(f"手動觸發：開始廣播... (DB Stock Count: {stock_count})")
+        service.broadcast_job(is_test=True)
+        
+        return f"測試成功！<br>資料庫股票數量: {stock_count}<br>訂閱用戶數量: {user_count}<br>請檢查 LINE 訊息！"
         
     except Exception as e:
         # 如果失敗，直接把錯誤原因印在網頁上，不用去翻 Log
