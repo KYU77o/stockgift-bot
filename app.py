@@ -86,23 +86,37 @@ if not app.debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
     scheduler = SchedulerService(app)
     scheduler.start()
 
-# --- 這裡是用來手動觸發測試的秘密通道 ---
+# --- 超級修復版秘密通道 ---
 from services.scheduler import SchedulerService
+from models import db  # 記得引入 db 來建立表格
+import traceback
 
 @app.route('/secret-trigger')
 def manual_trigger():
-    # 1. 建立服務
-    service = SchedulerService(app)
-    
-    # 2. 強制執行爬蟲
-    print("手動觸發：開始爬蟲...")
-    service.scrape_job()
-    
-    # 3. 強制執行廣播
-    print("手動觸發：開始廣播...")
-    service.broadcast_job()
-    
-    return "測試成功！請檢查 LINE 訊息！(若無訊息代表本週無資料)"
+    try:
+        # 0. 確保資料庫表格存在 (這步最關鍵！)
+        with app.app_context():
+            db.create_all()
+            print("資料庫表格檢查/建立完成。")
+
+        # 1. 建立服務
+        service = SchedulerService(app)
+        
+        # 2. 強制執行爬蟲
+        print("手動觸發：開始爬蟲...")
+        service.scrape_job()
+        
+        # 3. 強制執行廣播
+        print("手動觸發：開始廣播...")
+        service.broadcast_job()
+        
+        return "測試成功！資料庫已修復並執行完畢。請檢查 LINE 訊息！"
+        
+    except Exception as e:
+        # 如果失敗，直接把錯誤原因印在網頁上，不用去翻 Log
+        error_msg = f"執行失敗：{str(e)}\n\n詳細錯誤：\n{traceback.format_exc()}"
+        print(error_msg)
+        return error_msg.replace('\n', '<br>'), 500
 # ----------------------------------------
 
 if __name__ == "__main__":
