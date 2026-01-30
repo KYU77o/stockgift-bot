@@ -114,6 +114,16 @@ def manual_trigger():
             db.create_all()
             print("資料庫表格檢查/建立完成。")
 
+        # 0.5 Special Debug: Force Add Test User
+        if request.args.get('add_test_user') == 'true':
+            test_uid = "U_TEST_USER_12345"
+            existing = User.query.filter_by(line_user_id=test_uid).first()
+            if not existing:
+                u = User(line_user_id=test_uid, is_active=True)
+                db.session.add(u)
+                db.session.commit()
+                print(f"Debug: Added test user {test_uid}")
+
         # 1. 建立服務
         service = SchedulerService(app)
         
@@ -127,10 +137,10 @@ def manual_trigger():
         user_count = User.query.count()
         
         # 3. 強制執行廣播 (Test Mode: Force Send)
-        print(f"手動觸發：開始廣播... (DB Stock Count: {stock_count})")
+        print(f"手動觸發：開始廣播... (DB Stock Count: {stock_count}, User Count: {user_count})")
         service.broadcast_job(is_test=True)
         
-        return f"測試成功！<br>資料庫股票數量: {stock_count}<br>訂閱用戶數量: {user_count}<br>請檢查 LINE 訊息！"
+        return f"測試成功！<br>資料庫股票數量: {stock_count}<br>訂閱用戶數量: {user_count}<br>請檢查 LINE 訊息！<br>(若用戶仍為0，請嘗試加入 ?add_test_user=true 參數)"
         
     except Exception as e:
         # 如果失敗，直接把錯誤原因印在網頁上，不用去翻 Log
