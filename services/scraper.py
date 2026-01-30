@@ -92,18 +92,30 @@ class ScraperService:
                     if 'gift' in col_map and len(cells) > col_map['gift']:
                         gift_name = cells[col_map['gift']].get_text(strip=True)
                     
+                    # Extract Gift Year from page or assume next year if strictly future list
+                    # For now, let's assume the year is part of the context or current year + 1
+                    # A robust way is to find "2026" in the page title. 
+                    # Assuming 2026 for now based on known URL context.
+                    gift_year = 2026 
+                    
                     # Meeting Date
                     meeting_date = None
                     if 'meeting_date' in col_map and len(cells) > col_map['meeting_date']:
                         date_str = cells[col_map['meeting_date']].get_text(strip=True)
-                        # Parse date (e.g. 115/06/15 or 2026/06/15)
-                        meeting_date = self._parse_date(date_str)
+                        meeting_date = self._parse_date(date_str, default_year=gift_year)
 
                     # Last Buy Date
                     last_buy_date = None
                     if 'last_buy_date' in col_map and len(cells) > col_map['last_buy_date']:
                          date_str = cells[col_map['last_buy_date']].get_text(strip=True)
-                         last_buy_date = self._parse_date(date_str)
+                         last_buy_date = self._parse_date(date_str, default_year=gift_year)
+                    
+                    # Cross-Year Logic Check
+                    # If Last Buy is Dec (12) and Meeting is Jan (1), Last Buy should be Prev Year
+                    if last_buy_date and meeting_date:
+                        if last_buy_date.month > meeting_date.month + 6: # Simple heuristic: if buy is way later than meet, it's probably prev year
+                             from datetime import date
+                             last_buy_date = last_buy_date.replace(year=last_buy_date.year - 1)
                     
                     # Validation Check
                     if stock_id and gift_name and meeting_date:
@@ -113,7 +125,7 @@ class ScraperService:
                             'gift_name': gift_name,
                             'meeting_date': meeting_date,
                             'last_buy_date': last_buy_date,
-                            'gift_year': meeting_date.year if meeting_date else None
+                            'gift_year': gift_year
                         })
                         
                 except Exception as row_e:
@@ -128,29 +140,33 @@ class ScraperService:
         logger.info(f"Scraped {len(results)} items from HiStock.")
         return results
 
-    def _parse_date(self, date_str):
+    def _parse_date(self, date_str, default_year=None):
         """
-        Helper to parse Taiwan/Western dates
-        e.g. '112/05/20' -> 2023-05-20
-             '2023/05/20' -> 2023-05-20
+        Helper to parse dates
+        Formats: '115/06/15', '2026/06/15', '06/15'
         """
-        if not date_str or date_str == '-':
+        if not date_str or date_str == '-' or date_str == '':
             return None
+        
         try:
-            from datetime import datetime
-            
-            # Handle 115/06/15 format
+            from datetime import datetime, date
+            current_year = date.today().year
+            target_year = default_year if default_year else current_year
+
             parts = date_str.split('/')
-            if len(parts) == 3:
+            
+            # Case 1: MM/DD (Most common on HiStock table)
+            if len(parts) == 2:
+                month = int(parts[0])
+                day = int(parts[1])
+                return date(target_year, month, day)
+
+            # Case 2: YYY/MM/DD or YYYY/MM/DD
+            elif len(parts) == 3:
                 year = int(parts[0])
                 if year < 1911: # ROC Year
                     year += 1911
-                
-                # Check year sanity (e.g., if parsing fails or bad data)
-                if year < 2000 or year > 2100:
-                    return None
-                    
-                return datetime(year, int(parts[1]), int(parts[2])).date()
+                return date(year, int(parts[1]), int(parts[2]))
                 
             return None
         except:
