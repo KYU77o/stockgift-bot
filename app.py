@@ -86,5 +86,24 @@ if not app.debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
     scheduler = SchedulerService(app)
     scheduler.start()
 
+# --- 這裡是用來手動觸發測試的秘密通道 ---
+from services.scheduler import SchedulerService
+
+@app.route('/secret-trigger')
+def manual_trigger():
+    # 1. 建立服務
+    service = SchedulerService(app)
+    
+    # 2. 強制執行爬蟲
+    print("手動觸發：開始爬蟲...")
+    service.scrape_job()
+    
+    # 3. 強制執行廣播
+    print("手動觸發：開始廣播...")
+    service.broadcast_job()
+    
+    return "測試成功！請檢查 LINE 訊息！(若無訊息代表本週無資料)"
+# ----------------------------------------
+
 if __name__ == "__main__":
     app.run()
