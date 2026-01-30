@@ -59,14 +59,14 @@ class SchedulerService:
                 stocks = Stock.query.order_by(Stock.last_buy_date.desc()).limit(20).all()
             else:
                 # Normal Mode: 
-                # Notify for stocks where "Last Buy Date" is coming up in the next 7 days.
-                # This ensures users have time to buy.
+                # Notify for stocks that were ADDED or UPDATED in the past 7 days.
+                # And ensure the "Last Buy Date" hasn't passed yet.
                 today = datetime.now().date()
-                upcoming_deadline = today + timedelta(days=7)
+                one_week_ago = datetime.utcnow() - timedelta(days=7)
                 
                 stocks = Stock.query.filter(
-                    Stock.last_buy_date >= today,
-                    Stock.last_buy_date <= upcoming_deadline
+                    Stock.updated_at >= one_week_ago,
+                    Stock.last_buy_date >= today
                 ).all()
 
             # Early Exit
