@@ -73,7 +73,22 @@ def handle_unfollow(event):
 
 @handler.add(MessageEvent)
 def handle_message(event):
-    # System Identity: Not a chatbot. Return 200 OK immediately.
+    # System Identity: Not a chatbot, but we use this chance to ensure user is in DB.
+    line_user_id = event.source.user_id
+    
+    # Check if user exists, if not add them (Self-healing for existing followers)
+    user = User.query.filter_by(line_user_id=line_user_id).first()
+    if not user:
+        user = User(line_user_id=line_user_id, is_active=True)
+        db.session.add(user)
+        db.session.commit()
+        app.logger.info(f"Auto-registered existing user: {line_user_id}")
+    elif not user.is_active:
+        user.is_active = True
+        db.session.commit()
+
+    # Optional: Reply to acknowledge (or keep silent)
+    # line_bot_api.reply_message(event.reply_token, TextSendMessage(text="收到訊息！您的訂閱狀態已確認正常。✅"))
     return
 
 # Initialize Scheduler
