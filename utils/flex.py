@@ -27,7 +27,7 @@ def create_stock_report(stocks):
             contents=[
                 TextComponent(text=f"{stock.stock_id} {stock.name}", weight="bold", size="md"),
                 TextComponent(text=f"🎁 {stock.gift_name}", size="sm", color="#555555", wrap=True),
-                TextComponent(text=f"🗓 開會日: {stock.meeting_date}", size="xs", color="#999999")
+                TextComponent(text=f"🛒 最後買進: {stock.last_buy_date}", size="xs", color="#999999")
             ]
         )
         contents.append(row)
