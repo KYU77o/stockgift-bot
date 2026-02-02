@@ -131,16 +131,6 @@ def manual_trigger():
             db.create_all()
             print("資料庫表格檢查/建立完成。")
 
-        # 0.5 Special Debug: Force Add Test User
-        if request.args.get('add_test_user') == 'true':
-            test_uid = "U_TEST_USER_12345"
-            existing = User.query.filter_by(line_user_id=test_uid).first()
-            if not existing:
-                u = User(line_user_id=test_uid, is_active=True)
-                db.session.add(u)
-                db.session.commit()
-                print(f"Debug: Added test user {test_uid}")
-
         # Get Target User ID (Safety Lock)
         target_user_id = request.args.get('user_id')
 
