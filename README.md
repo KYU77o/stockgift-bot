@@ -25,6 +25,7 @@ Check Render logs after sending a message. Look for: `【您的 USER ID】: U...
 
 ### Manual Trigger (Safe Mode)
 `https://your-url.onrender.com/secret-trigger?user_id=Uxxxxxxxx`
+*(Without `user_id`, it will only update the database and **SKIP** broadcast.)*
 
 ---
 
@@ -55,3 +56,4 @@ Check Render logs after sending a message. Look for: `【您的 USER ID】: U...
 
 ### 手動觸發 (安全模式)
 `https://your-url.onrender.com/secret-trigger?user_id=Uxxxxxxxx`
+*(若未填寫 `user_id`，系統將只更新資料庫，**不會**發送任何廣播)*

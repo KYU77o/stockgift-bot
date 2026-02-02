@@ -151,20 +151,21 @@ def manual_trigger():
         print("手動觸發：開始爬蟲...")
         service.scrape_job()
         
-        # 3. 強制執行廣播
-        # Test Mode: Force Send top 20
-        print(f"手動觸發：開始廣播... (Target: {target_user_id if target_user_id else 'ALL USERS'})")
-        service.broadcast_job(is_test=True, target_user_id=target_user_id)
-        
+        # 3. 強制執行廣播 (Absolute Safety Lock)
+        msg_broadcast = ""
+        if target_user_id:
+            print(f"手動觸發：開始安全廣播... (Target: {target_user_id})")
+            service.broadcast_job(is_test=True, target_user_id=target_user_id)
+            msg_broadcast = f"✅ 安全廣播成功 (Target: {target_user_id})"
+        else:
+            print("手動觸發：未指定 user_id，跳過廣播。")
+            msg_broadcast = "🔒 安全鎖啟動：未指定 user_id，已跳過廣播 (僅更新資料庫)。"
+
         from models import Stock, User
         stock_count = Stock.query.count()
         user_count = User.query.count()
 
-        msg = f"測試成功！<br>資料庫股票數量: {stock_count}<br>總訂閱用戶數量: {user_count}<br>"
-        if target_user_id:
-            msg += f"✅ 安全模式：僅發送給測試員 ({target_user_id})"
-        else:
-            msg += f"⚠️ 警告：已發送給所有用戶！"
+        msg = f"執行完成！<br>資料庫股票數量: {stock_count}<br>總訂閱用戶數量: {user_count}<br><br>{msg_broadcast}"
 
         return msg
         
