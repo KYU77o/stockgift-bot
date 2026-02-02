@@ -44,23 +44,22 @@ class SchedulerService:
         with self.app.app_context():
             self.scraper.run()
 
-    def broadcast_job(self, is_test=False):
+    def broadcast_job(self, is_test=False, target_user_id=None):
         """
         Weekly Broadcast Job (Mon 08:30)
         is_test: If True, bypass date filter and broadcast upcoming stocks immediately.
+        target_user_id: If set, ONLY send to this user (Safe Mode).
         """
-        logger.info(f"Starting broadcast job... (Test Mode: {is_test})")
+        logger.info(f"Starting broadcast job... (Test: {is_test}, Target: {target_user_id})")
         
         with self.app.app_context():
             stocks = []
             if is_test:
-                # Test Mode: Fetch all stocks with future last buy dates (or recently passed)
-                # To ensure the user sees something, we just fetch the top 20 upcoming/active ones.
+                # Test Mode: Fetch top 20 upcoming stocks
                 stocks = Stock.query.order_by(Stock.last_buy_date.desc()).limit(20).all()
             else:
                 # Normal Mode: 
                 # Notify for stocks that were ADDED or UPDATED in the past 7 days.
-                # And ensure the "Last Buy Date" hasn't passed yet.
                 today = datetime.now().date()
                 one_week_ago = datetime.utcnow() - timedelta(days=7)
                 
@@ -73,17 +72,24 @@ class SchedulerService:
             if not stocks:
                 logger.info("No stocks found for broadcast.")
                 if is_test:
-                     # If DB is truly empty or no future dates, try fetching ANY stock to prove DB works
+                     # Fallback to prove DB works
                      stocks = Stock.query.limit(5).all()
                      if not stocks:
                          return # DB is really empty
                 else:
                     return
 
-            # Batch Sending
-            users = User.query.filter_by(is_active=True).all()
-            user_ids = [u.line_user_id for u in users]
-            
+            # Determine Recipients
+            user_ids = []
+            if target_user_id:
+                # SAFE MODE: Only send to the admin/tester
+                user_ids = [target_user_id]
+                logger.info(f"SAFE MODE: Sending only to target user: {target_user_id}")
+            else:
+                # BROADCAST MODE: Send to ALL active users
+                users = User.query.filter_by(is_active=True).all()
+                user_ids = [u.line_user_id for u in users]
+
             if not user_ids:
                 logger.info("No active users to notify.")
                 return 
@@ -96,7 +102,7 @@ class SchedulerService:
                 logger.error("Failed to create flex message.")
                 return
 
-            # Loop: Chunk users into batches of 500
+            # Batch Sending
             chunk_size = 500
             for i in range(0, len(user_ids), chunk_size):
                 chunk = user_ids[i:i + chunk_size]

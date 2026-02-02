@@ -1,6 +1,7 @@
 import logging
 from bs4 import BeautifulSoup
 import requests
+from datetime import datetime, date, timedelta
 from models import db, Stock
 
 logger = logging.getLogger(__name__)
@@ -92,29 +93,37 @@ class ScraperService:
                     if 'gift' in col_map and len(cells) > col_map['gift']:
                         gift_name = cells[col_map['gift']].get_text(strip=True)
                     
-                    # Extract Gift Year from page or assume next year if strictly future list
-                    # For now, let's assume the year is part of the context or current year + 1
-                    # A robust way is to find "2026" in the page title. 
-                    # Assuming 2026 for now based on known URL context.
-                    gift_year = 2026 
-                    
                     # Meeting Date
                     meeting_date = None
                     if 'meeting_date' in col_map and len(cells) > col_map['meeting_date']:
                         date_str = cells[col_map['meeting_date']].get_text(strip=True)
-                        meeting_date = self._parse_date(date_str, default_year=gift_year)
+                        meeting_date = self._parse_date(date_str)
+
+                    # Determine Gift Year from Meeting Date
+                    # If meeting_date is parsed successfully, usage its year.
+                    # Otherwise fallback to current year.
+                    if meeting_date:
+                        gift_year = meeting_date.year
+                    else:
+                        gift_year = datetime.now().year
 
                     # Last Buy Date
                     last_buy_date = None
                     if 'last_buy_date' in col_map and len(cells) > col_map['last_buy_date']:
                          date_str = cells[col_map['last_buy_date']].get_text(strip=True)
-                         last_buy_date = self._parse_date(date_str, default_year=gift_year)
+                         # Use the same smart parsing logic
+                         last_buy_date = self._parse_date(date_str)
                     
-                    # Cross-Year Logic Check
-                    # If Last Buy is Dec (12) and Meeting is Jan (1), Last Buy should be Prev Year
+                    # Cross-Year Logic Check (Refined)
+                    # If Last Buy is Dec (12) and Meeting is Jan (1) of the SAME year (from simple parse),
+                    # it means Last Buy should actually be the *previous* year.
+                    # Example: system guessed both are 2027. But Buy is Dec, Meeting is Jan. 
+                    # Then Buy is Dec 2026.
                     if last_buy_date and meeting_date:
-                        if last_buy_date.month > meeting_date.month + 6: # Simple heuristic: if buy is way later than meet, it's probably prev year
-                             from datetime import date
+                         # Case: Buy Month > Meeting Month + 6 (e.g. 12 > 1+6)
+                         # Implicitly means Buy is late within a year cycle relative to Meeting, 
+                         # which usually implies it belongs to the previous calendar year.
+                        if last_buy_date.month > meeting_date.month + 6 and last_buy_date.year == meeting_date.year:
                              last_buy_date = last_buy_date.replace(year=last_buy_date.year - 1)
                     
                     # Validation Check
@@ -140,31 +149,37 @@ class ScraperService:
         logger.info(f"Scraped {len(results)} items from HiStock.")
         return results
 
-    def _parse_date(self, date_str, default_year=None):
+    def _parse_date(self, date_str):
         """
-        Helper to parse dates
+        Helper to parse dates with sustainable smart year detection.
         Formats: '115/06/15', '2026/06/15', '06/15'
         """
         if not date_str or date_str == '-' or date_str == '':
             return None
         
         try:
-            from datetime import datetime, date
-            current_year = date.today().year
-            target_year = default_year if default_year else current_year
-
+            today = date.today()
+            current_year = today.year
+            
             parts = date_str.split('/')
             
             # Case 1: MM/DD (Most common on HiStock table)
             if len(parts) == 2:
                 month = int(parts[0])
                 day = int(parts[1])
+                
+                # Smart Year Logic:
+                # If today is Q4 (Oct-Dec) and target date is Q1 (Jan-Mar), assume Next Year.
+                target_year = current_year
+                if today.month >= 10 and month <= 3:
+                     target_year += 1
+                
                 return date(target_year, month, day)
 
             # Case 2: YYY/MM/DD or YYYY/MM/DD
             elif len(parts) == 3:
                 year = int(parts[0])
-                if year < 1911: # ROC Year
+                if year < 1911: # ROC Year (e.g. 115)
                     year += 1911
                 return date(year, int(parts[1]), int(parts[2]))
                 
@@ -227,9 +242,28 @@ class ScraperService:
             db.session.rollback()
             logger.error(f"Failed to commit stocks: {e}")
 
+    def cleanup_old_data(self):
+        """
+        Maintenance: Delete stocks with meeting dates older than 9 months.
+        This prevents the database from exploding on the free tier.
+        """
+        try:
+            # 9 months approx 270 days
+            cutoff_date = date.today() - timedelta(days=270)
+            
+            deleted_count = Stock.query.filter(Stock.meeting_date < cutoff_date).delete()
+            db.session.commit()
+            
+            if deleted_count > 0:
+                logger.info(f"Cleanup: Deleted {deleted_count} expired stocks (older than {cutoff_date}).")
+                
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Cleanup failed: {e}")
+
     def run(self):
         """
-        Orchestrate scraping and saving.
+        Orchestrate scraping, saving, and cleanup.
         """
         results = self.scrape_histock()
         
@@ -246,3 +280,6 @@ class ScraperService:
             self.save_stocks(valid_stocks)
         else:
             logger.info("No valid stock data found to save.")
+            
+        # Perform cleanup after update
+        self.cleanup_old_data()

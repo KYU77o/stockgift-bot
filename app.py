@@ -1,3 +1,5 @@
+import logging
+import sys
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
@@ -7,10 +9,17 @@ from linebot.models import (
 )
 from config import Config
 from models import db, User
+import os
 
 app = Flask(__name__)
 app.config.from_object(Config)
 db.init_app(app)
+
+# Setup Logging to Stdout (Critical for Render)
+if __name__ != '__main__':
+    gunicorn_logger = logging.getLogger('gunicorn.error')
+    app.logger.handlers = gunicorn_logger.handlers
+    app.logger.setLevel(gunicorn_logger.level)
 
 # Initialize LINE Bot API
 line_bot_api = LineBotApi(app.config['LINE_CHANNEL_ACCESS_TOKEN'])
@@ -20,6 +29,12 @@ handler = WebhookHandler(app.config['LINE_CHANNEL_SECRET'])
 def health():
     return "OK", 200
 
+@app.route("/debug-log")
+def debug_log():
+    app.logger.warning("這是一條測試 LOG。如果您看到這行，代表 Log 系統正常。")
+    print("這是一條 Print 測試。")
+    return "Log test sent. Check your specific logs now."
+
 @app.route("/webhook", methods=['POST'])
 def webhook():
     # get X-Line-Signature header value
@@ -27,7 +42,7 @@ def webhook():
 
     # get request body as text
     body = request.get_data(as_text=True)
-    app.logger.info("Request body: " + body)
+    # app.logger.info("Request body: " + body) # Commented out to reduce noise, we have specific logs now
 
     # handle webhook body
     try:
@@ -41,6 +56,9 @@ def webhook():
 @handler.add(FollowEvent)
 def handle_follow(event):
     line_user_id = event.source.user_id
+    
+    # Explicit Log for User to find their ID (WARN level to ensure visibility)
+    app.logger.warning(f"\n==========\n【您的 USER ID】: {line_user_id}\n==========\n")
     
     # Upsert User
     user = User.query.filter_by(line_user_id=line_user_id).first()
@@ -76,6 +94,9 @@ def handle_message(event):
     # System Identity: Not a chatbot, but we use this chance to ensure user is in DB.
     line_user_id = event.source.user_id
     
+    # Explicit Log here too (WARN level)
+    app.logger.warning(f"\n==========\n【您的 USER ID】: {line_user_id}\n==========\n")
+
     # Check if user exists, if not add them (Self-healing for existing followers)
     user = User.query.filter_by(line_user_id=line_user_id).first()
     if not user:
@@ -87,13 +108,9 @@ def handle_message(event):
         user.is_active = True
         db.session.commit()
 
-    # Optional: Reply to acknowledge (or keep silent)
-    # line_bot_api.reply_message(event.reply_token, TextSendMessage(text="收到訊息！您的訂閱狀態已確認正常。✅"))
     return
 
 # Initialize Scheduler
-# Note: In production with multiple workers, this might run multiple times.
-# For Render free tier/standard with 1 worker, this is acceptable.
 scheduler = None
 if not app.debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
     # Avoid double run in debug mode reloader
@@ -124,6 +141,9 @@ def manual_trigger():
                 db.session.commit()
                 print(f"Debug: Added test user {test_uid}")
 
+        # Get Target User ID (Safety Lock)
+        target_user_id = request.args.get('user_id')
+
         # 1. 建立服務
         service = SchedulerService(app)
         
@@ -131,16 +151,22 @@ def manual_trigger():
         print("手動觸發：開始爬蟲...")
         service.scrape_job()
         
-        # Check DB count after scrape
+        # 3. 強制執行廣播
+        # Test Mode: Force Send top 20
+        print(f"手動觸發：開始廣播... (Target: {target_user_id if target_user_id else 'ALL USERS'})")
+        service.broadcast_job(is_test=True, target_user_id=target_user_id)
+        
         from models import Stock, User
         stock_count = Stock.query.count()
         user_count = User.query.count()
-        
-        # 3. 強制執行廣播 (Test Mode: Force Send)
-        print(f"手動觸發：開始廣播... (DB Stock Count: {stock_count}, User Count: {user_count})")
-        service.broadcast_job(is_test=True)
-        
-        return f"測試成功！<br>資料庫股票數量: {stock_count}<br>訂閱用戶數量: {user_count}<br>請檢查 LINE 訊息！<br>(若用戶仍為0，請嘗試加入 ?add_test_user=true 參數)"
+
+        msg = f"測試成功！<br>資料庫股票數量: {stock_count}<br>總訂閱用戶數量: {user_count}<br>"
+        if target_user_id:
+            msg += f"✅ 安全模式：僅發送給測試員 ({target_user_id})"
+        else:
+            msg += f"⚠️ 警告：已發送給所有用戶！"
+
+        return msg
         
     except Exception as e:
         # 如果失敗，直接把錯誤原因印在網頁上，不用去翻 Log
