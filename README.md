@@ -19,6 +19,13 @@ A robust, time-driven notification system that broadcasts weekly "Shareholder Me
 ## Misfire Grace Time
 The scheduler includes a `misfire_grace_time` of 3600 seconds (1 hour) to accommodate Render's potential cold-start delays.
 
+## Debug & Safety
+### Finding User ID
+Check Render logs after sending a message. Look for: `【您的 USER ID】: U...`
+
+### Manual Trigger (Safe Mode)
+`https://your-url.onrender.com/secret-trigger?user_id=Uxxxxxxxx`
+
 ---
 
 這是一個通知系統，不是聊天機器人。
@@ -41,3 +48,10 @@ The scheduler includes a `misfire_grace_time` of 3600 seconds (1 hour) to accomm
 
 ## 錯過執行寬限時間 (Misfire Grace Time)
 排程器包含 3600 秒（1 小時）的 `misfire_grace_time`，以因應 Render 可能的冷啟動延遲。
+
+## 除錯與安全
+### 查詢 User ID
+發送訊息給機器人後查看 Render Logs，尋找：`【您的 USER ID】: U...`
+
+### 手動觸發 (安全模式)
+`https://your-url.onrender.com/secret-trigger?user_id=Uxxxxxxxx`
