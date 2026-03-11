@@ -25,10 +25,8 @@ class ScraperService:
             soup = BeautifulSoup(response.text, 'html.parser')
             
             # Find the main table: look for headers
-            target_table = None
+            target_tables = []
             tables = soup.find_all('table')
-            
-            col_map = {}
             
             for table in tables:
                 headers_row = table.find('tr')
@@ -48,98 +46,97 @@ class ScraperService:
                 
                 # Check if this is the correct table (needs minimal fields)
                 if 'gift' in current_map and ('id' in current_map or 'name' in current_map):
-                    target_table = table
-                    col_map = current_map
-                    logger.info(f"Found target table with columns: {col_map}")
-                    break
+                    target_tables.append((table, current_map))
+                    logger.info(f"Found target table with columns: {current_map}")
             
-            if not target_table:
-                logger.error("Could not find stock gift table.")
+            if not target_tables:
+                logger.error("Could not find stock gift tables.")
                 return []
                 
-            # Parse Rows
-            rows = target_table.find_all('tr')[1:] # Skip header
-            for row in rows:
-                cells = row.find_all('td')
-                if not cells: continue
-                
-                try:
-                    # Extract Data
-                    # Handle Stock ID/Name - often combined or linked
-                    stock_id = ""
-                    stock_name = ""
+            # Parse Rows across all matched tables
+            for target_table, col_map in target_tables:
+                rows = target_table.find_all('tr')[1:] # Skip header
+                for row in rows:
+                    cells = row.find_all('td')
+                    if not cells: continue
                     
-                    # Logic for ID column (often has <a> link)
-                    if 'id' in col_map and len(cells) > col_map['id']:
-                        id_cell = cells[col_map['id']]
-                        # ID is likely 4 digits
-                        stock_id = id_cell.get_text(strip=True)[:4] 
-                        # Name might be in the same cell or separate
-                        stock_name = id_cell.get_text(strip=True)[4:].strip()
+                    try:
+                        # Extract Data
+                        # Handle Stock ID/Name - often combined or linked
+                        stock_id = ""
+                        stock_name = ""
                         
-                        # Inspect link if present for cleaner ID
-                        # (Not strictly needed if text parsing works)
+                        # Logic for ID column (often has <a> link)
+                        if 'id' in col_map and len(cells) > col_map['id']:
+                            id_cell = cells[col_map['id']]
+                            # ID is likely 4 digits
+                            stock_id = id_cell.get_text(strip=True)[:4] 
+                            # Name might be in the same cell or separate
+                            stock_name = id_cell.get_text(strip=True)[4:].strip()
+                            
+                            # Inspect link if present for cleaner ID
+                            # (Not strictly needed if text parsing works)
 
-                    # Logic for Name (if separate)
-                    if not stock_name and 'name' in col_map and len(cells) > col_map['name']:
-                         stock_name = cells[col_map['name']].get_text(strip=True)
-                    
-                    # Fallback name if empty (extract from link if possible)
-                    if not stock_name:
-                         stock_name = "Unknown"
-
-                    # Gift Name
-                    gift_name = ""
-                    if 'gift' in col_map and len(cells) > col_map['gift']:
-                        gift_name = cells[col_map['gift']].get_text(strip=True)
-                    
-                    # Meeting Date
-                    meeting_date = None
-                    if 'meeting_date' in col_map and len(cells) > col_map['meeting_date']:
-                        date_str = cells[col_map['meeting_date']].get_text(strip=True)
-                        meeting_date = self._parse_date(date_str)
-
-                    # Determine Gift Year from Meeting Date
-                    # If meeting_date is parsed successfully, usage its year.
-                    # Otherwise fallback to current year.
-                    if meeting_date:
-                        gift_year = meeting_date.year
-                    else:
-                        gift_year = datetime.now().year
-
-                    # Last Buy Date
-                    last_buy_date = None
-                    if 'last_buy_date' in col_map and len(cells) > col_map['last_buy_date']:
-                         date_str = cells[col_map['last_buy_date']].get_text(strip=True)
-                         # Use the same smart parsing logic
-                         last_buy_date = self._parse_date(date_str)
-                    
-                    # Cross-Year Logic Check (Refined)
-                    # If Last Buy is Dec (12) and Meeting is Jan (1) of the SAME year (from simple parse),
-                    # it means Last Buy should actually be the *previous* year.
-                    # Example: system guessed both are 2027. But Buy is Dec, Meeting is Jan. 
-                    # Then Buy is Dec 2026.
-                    if last_buy_date and meeting_date:
-                         # Case: Buy Month > Meeting Month + 6 (e.g. 12 > 1+6)
-                         # Implicitly means Buy is late within a year cycle relative to Meeting, 
-                         # which usually implies it belongs to the previous calendar year.
-                        if last_buy_date.month > meeting_date.month + 6 and last_buy_date.year == meeting_date.year:
-                             last_buy_date = last_buy_date.replace(year=last_buy_date.year - 1)
-                    
-                    # Validation Check
-                    if stock_id and gift_name and meeting_date:
-                        results.append({
-                            'stock_id': stock_id,
-                            'name': stock_name,
-                            'gift_name': gift_name,
-                            'meeting_date': meeting_date,
-                            'last_buy_date': last_buy_date,
-                            'gift_year': gift_year
-                        })
+                        # Logic for Name (if separate)
+                        if not stock_name and 'name' in col_map and len(cells) > col_map['name']:
+                             stock_name = cells[col_map['name']].get_text(strip=True)
                         
-                except Exception as row_e:
-                    logger.warning(f"Error parsing row: {row_e}")
-                    continue
+                        # Fallback name if empty (extract from link if possible)
+                        if not stock_name:
+                             stock_name = "Unknown"
+
+                        # Gift Name
+                        gift_name = ""
+                        if 'gift' in col_map and len(cells) > col_map['gift']:
+                            gift_name = cells[col_map['gift']].get_text(strip=True)
+                        
+                        # Meeting Date
+                        meeting_date = None
+                        if 'meeting_date' in col_map and len(cells) > col_map['meeting_date']:
+                            date_str = cells[col_map['meeting_date']].get_text(strip=True)
+                            meeting_date = self._parse_date(date_str)
+
+                        # Determine Gift Year from Meeting Date
+                        # If meeting_date is parsed successfully, usage its year.
+                        # Otherwise fallback to current year.
+                        if meeting_date:
+                            gift_year = meeting_date.year
+                        else:
+                            gift_year = datetime.now().year
+
+                        # Last Buy Date
+                        last_buy_date = None
+                        if 'last_buy_date' in col_map and len(cells) > col_map['last_buy_date']:
+                             date_str = cells[col_map['last_buy_date']].get_text(strip=True)
+                             # Use the same smart parsing logic
+                             last_buy_date = self._parse_date(date_str)
+                        
+                        # Cross-Year Logic Check (Refined)
+                        # If Last Buy is Dec (12) and Meeting is Jan (1) of the SAME year (from simple parse),
+                        # it means Last Buy should actually be the *previous* year.
+                        # Example: system guessed both are 2027. But Buy is Dec, Meeting is Jan. 
+                        # Then Buy is Dec 2026.
+                        if last_buy_date and meeting_date:
+                             # Case: Buy Month > Meeting Month + 6 (e.g. 12 > 1+6)
+                             # Implicitly means Buy is late within a year cycle relative to Meeting, 
+                             # which usually implies it belongs to the previous calendar year.
+                            if last_buy_date.month > meeting_date.month + 6 and last_buy_date.year == meeting_date.year:
+                                 last_buy_date = last_buy_date.replace(year=last_buy_date.year - 1)
+                        
+                        # Validation Check
+                        if stock_id and gift_name and meeting_date:
+                            results.append({
+                                'stock_id': stock_id,
+                                'name': stock_name,
+                                'gift_name': gift_name,
+                                'meeting_date': meeting_date,
+                                'last_buy_date': last_buy_date,
+                                'gift_year': gift_year
+                            })
+                            
+                    except Exception as row_e:
+                        logger.warning(f"Error parsing row: {row_e}")
+                        continue
                     
         except Exception as e:
             logger.error(f"Scraping failed: {e}")
