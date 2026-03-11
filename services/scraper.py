@@ -3,10 +3,24 @@ from bs4 import BeautifulSoup
 import requests
 from datetime import datetime, date, timedelta
 from models import db, Stock
+import re
+import time
 
 logger = logging.getLogger(__name__)
 
 class ScraperService:
+    def _fetch_with_retry(self, url, headers, max_retries=3):
+        for attempt in range(max_retries):
+            try:
+                response = requests.get(url, headers=headers, timeout=10)
+                response.raise_for_status()
+                return response
+            except requests.RequestException as e:
+                logger.warning(f"Attempt {attempt + 1} failed: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(5 * (attempt + 1))
+        return None
+
     def scrape_histock(self):
         """
         Primary Source: HiStock
@@ -19,8 +33,10 @@ class ScraperService:
         results = []
         try:
             logger.info(f"Fetching {url}...")
-            response = requests.get(url, headers=headers, timeout=10)
-            response.raise_for_status()
+            response = self._fetch_with_retry(url, headers=headers)
+            if not response:
+                logger.error("Failed to fetch HiStock after retries.")
+                return []
             
             soup = BeautifulSoup(response.text, 'html.parser')
             
@@ -69,10 +85,15 @@ class ScraperService:
                         # Logic for ID column (often has <a> link)
                         if 'id' in col_map and len(cells) > col_map['id']:
                             id_cell = cells[col_map['id']]
-                            # ID is likely 4 digits
-                            stock_id = id_cell.get_text(strip=True)[:4] 
-                            # Name might be in the same cell or separate
-                            stock_name = id_cell.get_text(strip=True)[4:].strip()
+                            raw_text = id_cell.get_text(strip=True)
+                            match = re.match(r'(\d{4,6})', raw_text)
+                            if match:
+                                stock_id = match.group(1)
+                                stock_name = raw_text[len(stock_id):].strip()
+                            else:
+                                # Fallback
+                                stock_id = raw_text[:4]
+                                stock_name = raw_text[4:].strip()
                             
                             # Inspect link if present for cleaner ID
                             # (Not strictly needed if text parsing works)
@@ -181,7 +202,8 @@ class ScraperService:
                 return date(year, int(parts[1]), int(parts[2]))
                 
             return None
-        except:
+        except Exception as e:
+            logger.warning(f"Date parse failed for '{date_str}': {e}")
             return None
 
     def scrape_wantgoo(self):
@@ -217,10 +239,14 @@ class ScraperService:
             stock = Stock.query.get(data['stock_id'])
             if stock:
                 # Update logic
-                stock.name = data['name']
-                stock.gift_name = data['gift_name']
-                stock.meeting_date = data['meeting_date']
-                stock.gift_year = data.get('gift_year')
+                if data.get('name') and data['name'] != "Unknown":
+                    stock.name = data['name']
+                if data.get('gift_name'):
+                    stock.gift_name = data['gift_name']
+                if data.get('meeting_date'):
+                    stock.meeting_date = data['meeting_date']
+                if data.get('gift_year'):
+                    stock.gift_year = data.get('gift_year')
                 # Recalculate dates if needed
                 if data.get('vote_start_date'):
                     stock.vote_start_date = data['vote_start_date']

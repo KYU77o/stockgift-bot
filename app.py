@@ -15,6 +15,10 @@ app = Flask(__name__)
 app.config.from_object(Config)
 db.init_app(app)
 
+with app.app_context():
+    db.create_all()
+    app.logger.info("Database tables verified/created.")
+
 # Setup Logging to Stdout (Critical for Render)
 if __name__ != '__main__':
     gunicorn_logger = logging.getLogger('gunicorn.error')
@@ -119,36 +123,35 @@ if not app.debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
     scheduler.start()
 
 # --- 超級修復版秘密通道 ---
-from services.scheduler import SchedulerService
-from models import db  # 記得引入 db 來建立表格
 import traceback
 
 @app.route('/secret-trigger')
 def manual_trigger():
+    # 安全鎖：驗證 Token
+    token = request.args.get('token')
+    if token != os.environ.get('ADMIN_SECRET_TOKEN'):
+        abort(403)
+        
     try:
-        # 0. 確保資料庫表格存在 (這步最關鍵！)
-        with app.app_context():
-            db.create_all()
-            print("資料庫表格檢查/建立完成。")
 
         # Get Target User ID (Safety Lock)
         target_user_id = request.args.get('user_id')
 
-        # 1. 建立服務
-        service = SchedulerService(app)
+        # 1. 取得服務
+        from services.scheduler import run_scrape_job, run_broadcast_job
         
         # 2. 強制執行爬蟲
-        print("手動觸發：開始爬蟲...")
-        service.scrape_job()
+        app.logger.info("手動觸發：開始爬蟲...")
+        run_scrape_job(app)
         
         # 3. 強制執行廣播 (Absolute Safety Lock)
         msg_broadcast = ""
         if target_user_id:
-            print(f"手動觸發：開始安全廣播... (Target: {target_user_id})")
-            service.broadcast_job(is_test=True, target_user_id=target_user_id)
+            app.logger.info(f"手動觸發：開始安全廣播... (Target: {target_user_id})")
+            run_broadcast_job(app, is_test=True, target_user_id=target_user_id)
             msg_broadcast = f"✅ 安全廣播成功 (Target: {target_user_id})"
         else:
-            print("手動觸發：未指定 user_id，跳過廣播。")
+            app.logger.info("手動觸發：未指定 user_id，跳過廣播。")
             msg_broadcast = "🔒 安全鎖啟動：未指定 user_id，已跳過廣播 (僅更新資料庫)。"
 
         from models import Stock, User
@@ -160,10 +163,9 @@ def manual_trigger():
         return msg
         
     except Exception as e:
-        # 如果失敗，直接把錯誤原因印在網頁上，不用去翻 Log
-        error_msg = f"執行失敗：{str(e)}\n\n詳細錯誤：\n{traceback.format_exc()}"
-        print(error_msg)
-        return error_msg.replace('\n', '<br>'), 500
+        # 如果失敗，記錄完整錯誤但不回傳給使用者
+        app.logger.error(f"Manual trigger failed: {traceback.format_exc()}")
+        return "執行失敗，請查看 Render Logs。", 500
 # ----------------------------------------
 
 if __name__ == "__main__":
