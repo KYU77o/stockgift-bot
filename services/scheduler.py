@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 import logging
 
 from models import db, User, Stock
-from utils.flex import create_stock_report
+from utils.flex import create_stock_reports
 from services.scraper import ScraperService
 
 logger = logging.getLogger(__name__)
@@ -68,22 +68,30 @@ def run_broadcast_job(app, is_test=False, target_user_id=None):
 
         logger.info(f"Found {len(stocks)} stocks and {len(user_ids)} users.")
 
-        # Create Message
-        message = create_stock_report(stocks)
-        if not message:
-            logger.error("Failed to create flex message.")
+        # Create Messages (Each message has 5 stocks)
+        messages = create_stock_reports(stocks)
+        if not messages:
+            logger.error("Failed to create flex messages.")
             return
 
         # Batch Sending
+        # LINE multicast allows up to 5 message objects per request, 
+        # and up to 500 users per request.
         line_bot_api = LineBotApi(app.config['LINE_CHANNEL_ACCESS_TOKEN'])
-        chunk_size = 500
-        for i in range(0, len(user_ids), chunk_size):
-            chunk = user_ids[i:i + chunk_size]
-            try:
-                line_bot_api.multicast(chunk, message)
-                logger.info(f"Broadcasted to batch {i//chunk_size + 1}")
-            except Exception as e:
-                logger.error(f"Failed to send batch {i}: {str(e)}")
+        
+        # 1. Chunk messages into groups of 5 max
+        for m_idx in range(0, len(messages), 5):
+            msg_chunk = messages[m_idx:m_idx + 5]
+            
+            # 2. Chunk users into groups of 500 max
+            user_chunk_size = 500
+            for u_idx in range(0, len(user_ids), user_chunk_size):
+                u_chunk = user_ids[u_idx:u_idx + user_chunk_size]
+                try:
+                    line_bot_api.multicast(u_chunk, msg_chunk)
+                    logger.info(f"Broadcasted msg {m_idx+1}-{m_idx+len(msg_chunk)} to users batch {u_idx//user_chunk_size + 1}")
+                except Exception as e:
+                    logger.error(f"Failed to send to batch {u_idx}: {str(e)}")
 
 class SchedulerService:
     def __init__(self, app):
