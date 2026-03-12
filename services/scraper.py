@@ -109,7 +109,10 @@ class ScraperService:
                         # Gift Name
                         gift_name = ""
                         if 'gift' in col_map and len(cells) > col_map['gift']:
-                            gift_name = cells[col_map['gift']].get_text(strip=True)
+                            gift_cell = cells[col_map['gift']]
+                            for a_tag in gift_cell.find_all('a'):
+                                a_tag.decompose()
+                            gift_name = gift_cell.get_text(strip=True)
                         
                         # Meeting Date
                         meeting_date = None
@@ -164,8 +167,14 @@ class ScraperService:
             import traceback
             logger.error(traceback.format_exc())
             
-        logger.info(f"Scraped {len(results)} items from HiStock.")
-        return results
+        # 去重：同一 stock_id 只保留一筆
+        seen = {}
+        for item in results:
+            seen[item['stock_id']] = item
+        unique_results = list(seen.values())
+
+        logger.info(f"Scraped {len(results)} items, {len(unique_results)} unique from HiStock.")
+        return unique_results
 
     def _parse_date(self, date_str):
         """

@@ -8,7 +8,7 @@ from linebot.models import (
     FollowEvent, UnfollowEvent
 )
 from config import Config
-from models import db, User
+from models import db, User, Stock
 import os
 
 app = Flask(__name__)
@@ -35,6 +35,10 @@ def health():
 
 @app.route("/debug-log")
 def debug_log():
+    token = request.args.get('token')
+    if token != os.environ.get('ADMIN_SECRET_TOKEN'):
+        abort(403)
+        
     app.logger.warning("這是一條測試 LOG。如果您看到這行，代表 Log 系統正常。")
     print("這是一條 Print 測試。")
     return "Log test sent. Check your specific logs now."
@@ -122,7 +126,7 @@ if not app.debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
     scheduler = SchedulerService(app)
     scheduler.start()
 
-# --- 超級修復版秘密通道 ---
+# --- Admin Manual Trigger ---
 import traceback
 
 @app.route('/secret-trigger')
@@ -154,7 +158,6 @@ def manual_trigger():
             app.logger.info("手動觸發：未指定 user_id，跳過廣播。")
             msg_broadcast = "🔒 安全鎖啟動：未指定 user_id，已跳過廣播 (僅更新資料庫)。"
 
-        from models import Stock, User
         stock_count = Stock.query.count()
         user_count = User.query.count()
 
