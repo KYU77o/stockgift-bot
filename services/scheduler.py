@@ -26,8 +26,8 @@ def run_broadcast_job(app, is_test=False, target_user_id=None):
     with app.app_context():
         stocks = []
         if is_test:
-            # Test Mode: Fetch top 20 upcoming stocks
-            stocks = Stock.query.order_by(Stock.last_buy_date.desc()).limit(100).all()
+            # Test Mode: Fetch all upcoming stocks
+            stocks = Stock.query.order_by(Stock.last_buy_date.desc()).all()
         else:
             # Normal Mode: 
             # Notify for stocks that were ADDED or UPDATED in the past 7 days.
