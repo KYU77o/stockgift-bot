@@ -195,11 +195,15 @@ class ScraperService:
                 month = int(parts[0])
                 day = int(parts[1])
                 
-                # Smart Year Logic:
-                # If today is Q4 (Oct-Dec) and target date is Q1 (Jan-Mar), assume Next Year.
                 target_year = current_year
+                
+                # Q4看到Q1 → 明年
                 if today.month >= 10 and month <= 3:
                      target_year += 1
+                
+                # Q1看到Q4 → 去年
+                elif today.month <= 3 and month >= 10:
+                     target_year -= 1
                 
                 return date(target_year, month, day)
 
