@@ -140,6 +140,9 @@ def manual_trigger():
 
         # Get Target User ID (Safety Lock)
         target_user_id = request.args.get('user_id')
+        # mode=full (整個清單) | mode=new (僅未廣播/本週新增), 預設 full
+        mode = request.args.get('mode', 'full').lower()
+        is_full = (mode != 'new')
 
         # 1. 取得服務
         from services.scheduler import run_scrape_job, run_broadcast_job
@@ -149,11 +152,18 @@ def manual_trigger():
         run_scrape_job(app)
         
         # 3. 強制執行廣播 (Absolute Safety Lock)
+        mode_label = "📋 整個清單" if is_full else "🆕 僅本週新增/更新"
         msg_broadcast = ""
-        if target_user_id:
-            app.logger.info(f"手動觸發：開始安全廣播... (Target: {target_user_id})")
-            run_broadcast_job(app, is_test=True, target_user_id=target_user_id)
-            msg_broadcast = f"✅ 安全廣播成功 (Target: {target_user_id})"
+        if target_user_id and target_user_id.lower() == "all":
+            # ALL MODE: 廣播給所有 active 用戶
+            active_count = User.query.filter_by(is_active=True).count()
+            app.logger.info(f"手動觸發：開始全員廣播... (Mode: {mode}, Active Users: {active_count})")
+            run_broadcast_job(app, is_test=is_full, target_user_id=None)
+            msg_broadcast = f"📢 全員廣播完成<br>模式: {mode_label}<br>活躍用戶: {active_count} 位"
+        elif target_user_id:
+            app.logger.info(f"手動觸發：開始安全廣播... (Mode: {mode}, Target: {target_user_id})")
+            run_broadcast_job(app, is_test=is_full, target_user_id=target_user_id)
+            msg_broadcast = f"✅ 安全廣播成功<br>模式: {mode_label}<br>Target: {target_user_id}"
         else:
             app.logger.info("手動觸發：未指定 user_id，跳過廣播。")
             msg_broadcast = "🔒 安全鎖啟動：未指定 user_id，已跳過廣播 (僅更新資料庫)。"
